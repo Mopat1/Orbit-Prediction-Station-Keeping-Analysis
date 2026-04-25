@@ -1,0 +1,274 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);color:var(--color-text-primary)}
+.dash{display:grid;grid-template-columns:220px 1fr;gap:0;min-height:560px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.sidebar{background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);padding:16px 12px;display:flex;flex-direction:column;gap:4px}
+.sidebar-header{font-size:10px;font-weight:500;color:var(--color-text-tertiary);letter-spacing:.08em;text-transform:uppercase;padding:4px 8px 8px}
+.sat-btn{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--border-radius-md);border:none;background:transparent;cursor:pointer;text-align:left;width:100%;color:var(--color-text-primary);font-size:13px;transition:background .15s}
+.sat-btn:hover{background:var(--color-background-primary)}
+.sat-btn.active{background:var(--color-background-primary);font-weight:500}
+.sat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.main{display:flex;flex-direction:column;overflow:hidden}
+.topbar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:14px 16px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.metric{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px}
+.metric-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:4px}
+.metric-value{font-size:20px;font-weight:500}
+.metric-sub{font-size:11px;color:var(--color-text-tertiary);margin-top:2px}
+.tabs{display:flex;gap:0;border-bottom:0.5px solid var(--color-border-tertiary);padding:0 16px}
+.tab{padding:10px 14px;font-size:13px;border:none;background:transparent;cursor:pointer;color:var(--color-text-secondary);border-bottom:2px solid transparent;margin-bottom:-0.5px;transition:color .15s}
+.tab.active{color:var(--color-text-primary);border-bottom-color:var(--color-text-primary);font-weight:500}
+.content{flex:1;padding:16px;overflow:hidden}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;height:100%}
+.chart-box{display:flex;flex-direction:column;gap:8px}
+.chart-label{font-size:11px;color:var(--color-text-secondary);font-weight:500}
+.chart-wrap{position:relative;flex:1;min-height:180px}
+.sk-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;height:100%}
+.sk-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.sk-card-title{font-size:12px;font-weight:500}
+.sk-row{display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.sk-key{color:var(--color-text-secondary)}
+.sk-val{font-weight:500}
+.badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:500}
+.badge-ok{background:var(--color-background-success);color:var(--color-text-success)}
+.badge-warn{background:var(--color-background-warning);color:var(--color-text-warning)}
+.cv-panel{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.cv-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px;text-align:center}
+.cv-name{font-size:10px;color:var(--color-text-secondary);margin-bottom:6px}
+.cv-mae{font-size:16px;font-weight:500}
+.cv-rmse{font-size:11px;color:var(--color-text-tertiary)}
+.pipeline-steps{display:flex;align-items:center;gap:0;margin-bottom:14px}
+.step{flex:1;text-align:center;padding:8px 4px;font-size:11px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)}
+.step:first-child{border-radius:var(--border-radius-md) 0 0 var(--border-radius-md)}
+.step:last-child{border-radius:0 var(--border-radius-md) var(--border-radius-md) 0}
+.step-icon{font-size:14px;margin-bottom:2px}
+.step-label{font-size:10px;color:var(--color-text-secondary)}
+.arrow{color:var(--color-text-tertiary);font-size:14px;flex-shrink:0}
+</style>
+
+<h2 class="sr-only">Orbit Prediction and Station-Keeping Analysis Dashboard — GEO satellite telemetry, model metrics, and manoeuvre budgets</h2>
+
+<div class="dash">
+  <div class="sidebar">
+    <div class="sidebar-header">Satellites</div>
+  </div>
+  <div class="main">
+    <div class="topbar" id="topbar"></div>
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('orbit')">Orbital drift</button>
+      <button class="tab" onclick="showTab('sk')">Station-keeping</button>
+      <button class="tab" onclick="showTab('cv')">Model validation</button>
+      <button class="tab" onclick="showTab('pipeline')">Pipeline</button>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const COLORS = ['#378ADD','#1D9E75','#D85A30','#D4537E','#BA7517'];
+const SAT_COLORS = {
+  'INSAT-3D': '#378ADD',
+  'GSAT-17': '#1D9E75',
+  'GSAT-11': '#D85A30',
+  'SES-12': '#D4537E',
+  'MEASAT-3B': '#BA7517'
+};
+
+const METRICS = {
+  'INSAT-3D':  {inc_MAE:0.000119, inc_RMSE:0.000135, alt_MAE:0.022,  alt_RMSE:0.0304, dv:1.6651, budget:5.33, mean_inc:0.031026, max_inc:0.031533},
+  'GSAT-17':   {inc_MAE:0.000128, inc_RMSE:0.000139, alt_MAE:0.0252, alt_RMSE:0.0312, dv:2.2394, budget:6.48, mean_inc:0.041726, max_inc:0.042233},
+  'GSAT-11':   {inc_MAE:0.000123, inc_RMSE:0.000136, alt_MAE:0.0209, alt_RMSE:0.0278, dv:1.0426, budget:4.09, mean_inc:0.019426, max_inc:0.019933},
+  'SES-12':    {inc_MAE:0.000128, inc_RMSE:0.000140, alt_MAE:0.0366, alt_RMSE:0.0491, dv:1.4612, budget:4.92, mean_inc:0.027226, max_inc:0.027733},
+  'MEASAT-3B': {inc_MAE:0.000121, inc_RMSE:0.000137, alt_MAE:0.0147, alt_RMSE:0.0190, dv:1.8208, budget:5.64, mean_inc:0.033926, max_inc:0.034433},
+};
+const CV = {
+  'INSAT-3D':  {mae:0.000112, mae_std:0.0000050, rmse:0.000124, rmse_std:0.0000048},
+  'GSAT-17':   {mae:0.000113, mae_std:0.0000081, rmse:0.000126, rmse_std:0.0000084},
+  'GSAT-11':   {mae:0.000114, mae_std:0.0000075, rmse:0.000126, rmse_std:0.0000068},
+  'SES-12':    {mae:0.000116, mae_std:0.0000055, rmse:0.000128, rmse_std:0.0000058},
+  'MEASAT-3B': {mae:0.000114, mae_std:0.0000049, rmse:0.000126, rmse_std:0.0000049},
+};
+
+const TS = {"INSAT-3D":{"hours":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119],"inc":[0.030517,0.030527,0.030534,0.030545,0.030552,0.03056,0.03057,0.030577,0.030585,0.030595,0.030603,0.030613,0.03062,0.03063,0.030637,0.030646,0.030656,0.030664,0.030672,0.030683,0.030691,0.030701,0.030706,0.030716,0.030725,0.030735,0.030742,0.030749,0.03076,0.030768,0.030776,0.030785,0.030791,0.030803,0.030811,0.03082,0.030827,0.030836,0.030844,0.030853,0.030864,0.030871,0.03088,0.030888,0.030896,0.030907,0.030914,0.030923,0.030933,0.03094,0.030951,0.030959,0.030968,0.030976,0.030983,0.030992,0.030999,0.03101,0.031018,0.031026,0.031036,0.031045,0.031051,0.031059,0.031071,0.031079,0.031085,0.031095,0.031104,0.031114,0.031121,0.03113,0.031138,0.031147,0.031157,0.031163,0.031174,0.031183,0.031191,0.031198,0.031208,0.031215,0.031222,0.031232,0.031243,0.031252,0.03126,0.031267,0.031275,0.031286,0.031294,0.031302,0.031312,0.031319,0.03133,0.031337,0.031346,0.031353,0.031364,0.031373,0.031379,0.031389,0.031398,0.031408,0.031415,0.031426,0.031432,0.031441,0.031448,0.031457,0.031466,0.031476,0.031484,0.031493,0.031499,0.031509,0.031518,0.031527],"alt":[35796.93,35797.14,35797.09,35796.76,35796.19,35795.41,35794.48,35793.45,35792.41,35791.42,35790.55,35789.86,35789.4,35789.19,35789.26,35789.6,35790.17,35790.96,35791.9,35792.92,35793.96,35794.95,35795.81,35796.5,35796.95,35797.15,35797.07,35796.73,35796.14,35795.35,35794.41,35793.39,35792.35,35791.36,35790.5,35789.82,35789.38,35789.19,35789.27,35789.62,35790.22,35791.02,35791.96,35792.99,35794.03,35795.01,35795.87,35796.54,35796.98,35797.15,35797.06,35796.7,35796.1,35795.3,35794.35,35793.32,35792.28,35791.3,35790.45,35789.79,35789.35,35789.18,35789.29,35789.65,35790.26,35791.07,35792.03,35793.06,35794.1,35795.07,35795.92,35796.57,35797.0,35797.16,35797.05,35796.67,35796.05,35795.24,35794.28,35793.25,35792.21,35791.24,35790.4,35789.75,35789.33,35789.18,35789.3,35789.69,35790.31,35791.13,35792.09,35793.13,35794.16,35795.13,35795.97,35796.61,35797.02,35797.16,35797.03,35796.64,35796.01,35795.18,35794.22,35793.18,35792.14,35791.18,35790.35,35789.71,35789.31,35789.18,35789.32,35789.72,35790.36,35791.19,35792.16,35793.19,35794.23,35795.19]},"GSAT-17":{"hours":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119],"inc":[0.041217,0.041227,0.041234,0.041245,0.041252,0.04126,0.04127,0.041277,0.041285,0.041295,0.041303,0.041313,0.04132,0.04133,0.041337,0.041346,0.041356,0.041364,0.041372,0.041383,0.041391,0.041401,0.041406,0.041416,0.041425,0.041435,0.041442,0.041449,0.04146,0.041468,0.041476,0.041485,0.041491,0.041503,0.041511,0.04152,0.041527,0.041536,0.041544,0.041553,0.041564,0.041571,0.04158,0.041588,0.041596,0.041607,0.041614,0.041623,0.041633,0.04164,0.041651,0.041659,0.041668,0.041676,0.041683,0.041692,0.041699,0.04171,0.041718,0.041726,0.041736,0.041745,0.041751,0.041759,0.041771,0.041779,0.041785,0.041795,0.041804,0.041814,0.041821,0.04183,0.041838,0.041847,0.041857,0.041863,0.041874,0.041883,0.041891,0.041898,0.041908,0.041915,0.041922,0.041932,0.041943,0.041952,0.04196,0.041967,0.041975,0.041986,0.041994,0.042002,0.042012,0.042019,0.04203,0.042037,0.042046,0.042053,0.042064,0.042073,0.042079,0.042089,0.042098,0.042108,0.042115,0.042126,0.042132,0.042141,0.042148,0.042157,0.042166,0.042176,0.042184,0.042193,0.042199,0.042209,0.042218,0.042227],"alt":[35791.86,35793.21,35794.56,35795.81,35796.88,35797.7,35798.21,35798.37,35798.18,35797.64,35796.8,35795.7,35794.44,35793.08,35791.74,35790.49,35789.42,35788.61,35788.12,35787.97,35788.17,35788.72,35789.57,35790.67,35791.94,35793.3,35794.65,35795.89,35796.95,35797.75,35798.23,35798.37,35798.15,35797.6,35796.73,35795.63,35794.35,35793.0,35791.65,35790.41,35789.36,35788.57,35788.09,35787.97,35788.2,35788.77,35789.64,35790.75,35792.03,35793.39,35794.73,35795.97,35797.01,35797.79,35798.25,35798.37,35798.13,35797.55,35796.67,35795.55,35794.26,35792.91,35791.56,35790.33,35789.3,35788.53,35788.07,35787.97,35788.22,35788.81,35789.7,35790.83,35792.12,35793.48,35794.82,35796.04,35797.07,35797.83,35798.27,35798.37,35798.1,35797.5,35796.6,35795.47,35794.18,35792.82,35791.48,35790.26,35789.24,35788.48,35788.05,35787.97,35788.25,35788.86,35789.77,35790.91,35792.21,35793.57,35794.9,35796.12,35797.13,35797.87,35798.29,35798.36,35798.07,35797.45,35796.54,35795.39,35794.09,35792.73,35791.39,35790.18,35789.18,35788.45,35788.04,35787.98,35788.28,35788.91]},"GSAT-11":{"hours":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119],"inc":[0.018917,0.018927,0.018934,0.018945,0.018952,0.01896,0.01897,0.018977,0.018985,0.018995,0.019003,0.019013,0.01902,0.01903,0.019037,0.019046,0.019056,0.019064,0.019072,0.019083,0.019091,0.019101,0.019106,0.019116,0.019125,0.019135,0.019142,0.019149,0.01916,0.019168,0.019176,0.019185,0.019191,0.019203,0.019211,0.01922,0.019227,0.019236,0.019244,0.019253,0.019264,0.019271,0.01928,0.019288,0.019296,0.019307,0.019314,0.019323,0.019333,0.01934,0.019351,0.019359,0.019368,0.019376,0.019383,0.019392,0.019399,0.01941,0.019418,0.019426,0.019436,0.019445,0.019451,0.019459,0.019471,0.019479,0.019485,0.019495,0.019504,0.019514,0.019521,0.01953,0.019538,0.019547,0.019557,0.019563,0.019574,0.019583,0.019591,0.019598,0.019608,0.019615,0.019622,0.019632,0.019643,0.019652,0.01966,0.019667,0.019675,0.019686,0.019694,0.019702,0.019712,0.019719,0.01973,0.019737,0.019746,0.019753,0.019764,0.019773,0.019779,0.019789,0.019798,0.019808,0.019815,0.019826,0.019832,0.019841,0.019848,0.019857,0.019866,0.019876,0.019884,0.019893,0.019899,0.019909,0.019918,0.019927],"alt":[35794.84,35795.56,35796.11,35796.47,35796.59,35796.49,35796.15,35795.61,35794.91,35794.08,35793.19,35792.3,35791.47,35790.76,35790.21,35789.86,35789.75,35789.86,35790.2,35790.75,35791.46,35792.29,35793.18,35794.07,35794.89,35795.6,35796.14,35796.48,35796.6,35796.47,35796.12,35795.57,35794.86,35794.02,35793.13,35792.25,35791.42,35790.72,35790.18,35789.85,35789.74,35789.87,35790.23,35790.79,35791.51,35792.34,35793.24,35794.12,35794.94,35795.64,35796.18,35796.5,35796.6,35796.46,35796.1,35795.53,35794.81,35793.97,35793.08,35792.19,35791.37,35790.67,35790.15,35789.83,35789.74,35789.89,35790.26,35790.83,35791.56,35792.4,35793.29,35794.18,35795.0,35795.69,35796.2,35796.51,35796.6,35796.44,35796.07,35795.49,35794.75,35793.91,35793.02,35792.13,35791.32,35790.63,35790.12,35789.82,35789.74,35789.91,35790.29,35790.87,35791.61,35792.46,35793.35,35794.24,35795.05,35795.73,35796.23,35796.53,35796.59,35796.43,35796.03,35795.45,35794.7,35793.85,35792.96,35792.08,35791.27,35790.59,35790.09,35789.8,35789.75,35789.92,35790.32,35790.92,35791.66,35792.52]},"SES-12":{"hours":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119],"inc":[0.026717,0.026727,0.026734,0.026745,0.026752,0.02676,0.02677,0.026777,0.026785,0.026795,0.026803,0.026813,0.02682,0.02683,0.026837,0.026846,0.026856,0.026864,0.026872,0.026883,0.026891,0.026901,0.026906,0.026916,0.026925,0.026935,0.026942,0.026949,0.02696,0.026968,0.026976,0.026985,0.026991,0.027003,0.027011,0.02702,0.027027,0.027036,0.027044,0.027053,0.027064,0.027071,0.02708,0.027088,0.027096,0.027107,0.027114,0.027123,0.027133,0.02714,0.027151,0.027159,0.027168,0.027176,0.027183,0.027192,0.027199,0.02721,0.027218,0.027226,0.027236,0.027245,0.027251,0.027259,0.027271,0.027279,0.027285,0.027295,0.027304,0.027314,0.027321,0.02733,0.027338,0.027347,0.027357,0.027363,0.027374,0.027383,0.027391,0.027398,0.027408,0.027415,0.027422,0.027432,0.027443,0.027452,0.02746,0.027467,0.027475,0.027486,0.027494,0.027502,0.027512,0.027519,0.02753,0.027537,0.027546,0.027553,0.027564,0.027573,0.027579,0.027589,0.027598,0.027608,0.027615,0.027626,0.027632,0.027641,0.027648,0.027657,0.027666,0.027676,0.027684,0.027693,0.027699,0.027709,0.027718,0.027727],"alt":[35793.74,35792.14,35790.6,35789.24,35788.15,35787.41,35787.05,35787.12,35787.6,35788.47,35789.65,35791.08,35792.65,35794.26,35795.79,35797.14,35798.22,35798.95,35799.29,35799.21,35798.71,35797.84,35796.64,35795.21,35793.64,35792.03,35790.5,35789.16,35788.09,35787.37,35787.04,35787.14,35787.65,35788.53,35789.74,35791.18,35792.76,35794.36,35795.88,35797.22,35798.28,35798.99,35799.3,35799.19,35798.67,35797.77,35796.56,35795.11,35793.53,35791.93,35790.41,35789.08,35788.03,35787.33,35787.04,35787.16,35787.69,35788.6,35789.83,35791.28,35792.86,35794.46,35795.98,35797.3,35798.34,35799.02,35799.31,35799.17,35798.62,35797.7,35796.47,35795.01,35793.43,35791.82,35790.31,35789.0,35787.97,35787.3,35787.03,35787.18,35787.74,35788.67,35789.92,35791.38,35792.97,35794.57,35796.07,35797.38,35798.4,35799.06,35799.31,35799.15,35798.57,35797.63,35796.38,35794.91,35793.32,35791.72,35790.22,35788.92,35787.91,35787.27,35787.02,35787.2,35787.79,35788.75,35790.0,35791.48,35793.07,35794.67,35796.17,35797.46,35798.45,35799.09,35799.31,35799.12,35798.52,35797.56]},"MEASAT-3B":{"hours":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119],"inc":[0.033417,0.033427,0.033434,0.033445,0.033452,0.03346,0.03347,0.033477,0.033485,0.033495,0.033503,0.033513,0.03352,0.03353,0.033537,0.033546,0.033556,0.033564,0.033572,0.033583,0.033591,0.033601,0.033606,0.033616,0.033625,0.033635,0.033642,0.033649,0.03366,0.033668,0.033676,0.033685,0.033691,0.033703,0.033711,0.03372,0.033727,0.033736,0.033744,0.033753,0.033764,0.033771,0.03378,0.033788,0.033796,0.033807,0.033814,0.033823,0.033833,0.03384,0.033851,0.033859,0.033868,0.033876,0.033883,0.033892,0.033899,0.03391,0.033918,0.033926,0.033936,0.033945,0.033951,0.033959,0.033971,0.033979,0.033985,0.033995,0.034004,0.034014,0.034021,0.03403,0.034038,0.034047,0.034057,0.034063,0.034074,0.034083,0.034091,0.034098,0.034108,0.034115,0.034122,0.034132,0.034143,0.034152,0.03416,0.034167,0.034175,0.034186,0.034194,0.034202,0.034212,0.034219,0.03423,0.034237,0.034246,0.034253,0.034264,0.034273,0.034279,0.034289,0.034298,0.034308,0.034315,0.034326,0.034332,0.034341,0.034348,0.034357,0.034366,0.034376,0.034384,0.034393,0.034399,0.034409,0.034418,0.034427],"alt":[35790.44,35790.31,35790.38,35790.64,35791.08,35791.66,35792.34,35793.08,35793.82,35794.52,35795.13,35795.6,35795.91,35796.03,35795.95,35795.68,35795.24,35794.66,35793.98,35793.24,35792.49,35791.8,35791.19,35790.72,35790.42,35790.31,35790.39,35790.67,35791.11,35791.7,35792.39,35793.13,35793.87,35794.57,35795.17,35795.63,35795.93,35796.03,35795.94,35795.66,35795.21,35794.62,35793.93,35793.19,35792.45,35791.75,35791.16,35790.7,35790.41,35790.31,35790.4,35790.69,35791.15,35791.74,35792.43,35793.18,35793.92,35794.61,35795.2,35795.66,35795.94,35796.03,35795.93,35795.64,35795.18,35794.58,35793.88,35793.14,35792.4,35791.71,35791.12,35790.67,35790.39,35790.31,35790.42,35790.71,35791.18,35791.78,35792.48,35793.22,35793.97,35794.65,35795.24,35795.68,35795.95,35796.03,35795.92,35795.61,35795.14,35794.54,35793.84,35793.09,35792.35,35791.67,35791.08,35790.65,35790.38,35790.31,35790.43,35790.74,35791.21,35791.82,35792.53,35793.27,35794.01,35794.7,35795.27,35795.71,35795.97,35796.03,35795.91,35795.59,35795.11,35794.49,35793.79,35793.04,35792.3,35791.62]}};
+
+const SATS = Object.keys(TS);
+let activeSat = SATS[0];
+let activeTab = 'orbit';
+let charts = {};
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+}
+
+function buildSidebar() {
+  const sb = document.querySelector('.sidebar');
+  sb.innerHTML = '<div class="sidebar-header">Satellites</div>';
+  SATS.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'sat-btn' + (s === activeSat ? ' active' : '');
+    b.innerHTML = `<span class="sat-dot" style="background:${SAT_COLORS[s]}"></span>${s}`;
+    b.onclick = () => { activeSat = s; buildSidebar(); renderTop(); renderContent(); };
+    sb.appendChild(b);
+  });
+}
+
+function renderTop() {
+  const m = METRICS[activeSat];
+  document.getElementById('topbar').innerHTML = `
+    <div class="metric"><div class="metric-label">Incl. MAE</div><div class="metric-value" style="color:${SAT_COLORS[activeSat]}">${m.inc_MAE.toFixed(6)}°</div><div class="metric-sub">Mean absolute error</div></div>
+    <div class="metric"><div class="metric-label">Incl. RMSE</div><div class="metric-value">${m.inc_RMSE.toFixed(6)}°</div><div class="metric-sub">Root mean sq. error</div></div>
+    <div class="metric"><div class="metric-label">ΔV N/S budget</div><div class="metric-value">${m.dv.toFixed(2)} m/s</div><div class="metric-sub">Per manoeuvre cycle</div></div>
+    <div class="metric"><div class="metric-label">Annual budget</div><div class="metric-value">${m.budget.toFixed(2)} m/s</div><div class="metric-sub">Station-keeping total</div></div>
+  `;
+}
+
+function showTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  renderContent();
+}
+
+function renderContent() {
+  destroyCharts();
+  const c = document.getElementById('content');
+  if (activeTab === 'orbit') renderOrbit(c);
+  else if (activeTab === 'sk') renderSK(c);
+  else if (activeTab === 'cv') renderCV(c);
+  else renderPipeline(c);
+}
+
+function renderOrbit(c) {
+  c.innerHTML = `
+    <div class="chart-row">
+      <div class="chart-box">
+        <div class="chart-label">Inclination drift (°) — 120-hour propagation</div>
+        <div class="chart-wrap"><canvas id="incChart" role="img" aria-label="Inclination drift over 120 hours for ${activeSat}"></canvas></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-label">Altitude variation (km) — orbital slot oscillation</div>
+        <div class="chart-wrap"><canvas id="altChart" role="img" aria-label="Altitude variation for ${activeSat}"></canvas></div>
+      </div>
+    </div>`;
+
+  const d = TS[activeSat];
+  const col = SAT_COLORS[activeSat];
+
+  setTimeout(() => {
+    charts.inc = new Chart(document.getElementById('incChart'), {
+      type:'line',
+      data:{ labels: d.hours, datasets:[{ label:'Inclination (°)', data:d.inc, borderColor:col, borderWidth:1.5, pointRadius:0, fill:false, tension:0.3 }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ x:{ ticks:{maxTicksLimit:8, color:'#888'}, grid:{color:'rgba(128,128,128,.1)'} }, y:{ ticks:{color:'#888', callback:v=>v.toFixed(4)+'°'}, grid:{color:'rgba(128,128,128,.1)'} } } }
+    });
+    charts.alt = new Chart(document.getElementById('altChart'), {
+      type:'line',
+      data:{ labels: d.hours, datasets:[{ label:'Altitude (km)', data:d.alt, borderColor:col, borderWidth:1.5, pointRadius:0, fill:{target:'origin', above:col+'22'}, tension:0.3 }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ x:{ ticks:{maxTicksLimit:8, color:'#888'}, grid:{color:'rgba(128,128,128,.1)'} }, y:{ ticks:{color:'#888', callback:v=>v.toFixed(0)+' km'}, grid:{color:'rgba(128,128,128,.1)'} } } }
+    });
+  }, 50);
+}
+
+function renderSK(c) {
+  const allSats = SATS.map(s => {
+    const m = METRICS[s];
+    return `
+    <div class="sk-card">
+      <div class="sk-card-title" style="color:${SAT_COLORS[s]}">${s}</div>
+      <div class="sk-row"><span class="sk-key">Mean |inc|</span><span class="sk-val">${m.mean_inc.toFixed(4)}°</span></div>
+      <div class="sk-row"><span class="sk-key">Max |inc|</span><span class="sk-val">${m.max_inc.toFixed(4)}°</span></div>
+      <div class="sk-row"><span class="sk-key">ΔV N/S</span><span class="sk-val">${m.dv.toFixed(4)} m/s</span></div>
+      <div class="sk-row"><span class="sk-key">Annual budget</span><span class="sk-val">${m.budget.toFixed(2)} m/s</span></div>
+      <div class="sk-row"><span class="sk-key">N/S threshold</span><span class="sk-val"><span class="badge badge-ok">Within 0.05°</span></span></div>
+    </div>`;
+  }).join('');
+  c.innerHTML = `<div class="sk-grid">${allSats}</div>`;
+}
+
+function renderCV(c) {
+  const cards = SATS.map((s,i) => {
+    const cv = CV[s];
+    return `
+    <div class="cv-card">
+      <div class="cv-name">${s}</div>
+      <div class="cv-mae" style="color:${SAT_COLORS[s]}">${cv.mae.toFixed(6)}°</div>
+      <div class="cv-rmse" style="margin:2px 0 4px">±${cv.mae_std.toFixed(7)}°</div>
+      <div style="font-size:10px;color:var(--color-text-tertiary)">RMSE ${cv.rmse.toFixed(6)}°</div>
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px;font-weight:500">Walk-forward cross-validation (5 folds) — MAE ± std · RMSE per satellite</div>
+      <div class="cv-panel">${cards}</div>
+    </div>
+    <div style="margin-top:14px;border-top:0.5px solid var(--color-border-tertiary);padding-top:12px">
+      <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:8px;font-weight:500">MAE comparison across satellites (inclination, °)</div>
+      <div style="position:relative;height:120px"><canvas id="cvChart" role="img" aria-label="Cross-validation MAE bar chart across 5 satellites"></canvas></div>
+    </div>`;
+
+  setTimeout(() => {
+    charts.cv = new Chart(document.getElementById('cvChart'), {
+      type:'bar',
+      data:{ labels: SATS, datasets:[
+        { label:'MAE', data: SATS.map(s=>CV[s].mae), backgroundColor: SATS.map(s=>SAT_COLORS[s]+'cc'), borderWidth:0 },
+      ]},
+      options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y', plugins:{ legend:{display:false} }, scales:{ x:{ ticks:{color:'#888', callback:v=>v.toFixed(6)+'°'}, grid:{color:'rgba(128,128,128,.1)'} }, y:{ ticks:{color:'#888', font:{size:11}} } } }
+    });
+  }, 50);
+}
+
+function renderPipeline(c) {
+  c.innerHTML = `
+    <div class="pipeline-steps">
+      <div class="step"><div class="step-icon">📡</div><div style="font-size:12px;font-weight:500">TLE fetch</div><div class="step-label">CelesTrak / sample</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="step-icon">🛰</div><div style="font-size:12px;font-weight:500">SGP4 propagate</div><div class="step-label">State vectors</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="step-icon">⚙️</div><div style="font-size:12px;font-weight:500">Feature eng.</div><div class="step-label">23 features</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="step-icon">🤖</div><div style="font-size:12px;font-weight:500">GBR model</div><div class="step-label">Train / predict</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="step-icon">📊</div><div style="font-size:12px;font-weight:500">Evaluation</div><div class="step-label">MAE · RMSE · CV</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="sk-card">
+        <div class="sk-card-title">Propagation</div>
+        <div class="sk-row"><span class="sk-key">Backend</span><span class="sk-val">sgp4 / simulated</span></div>
+        <div class="sk-row"><span class="sk-key">Horizon</span><span class="sk-val">120 hours</span></div>
+        <div class="sk-row"><span class="sk-key">Step size</span><span class="sk-val">10 min</span></div>
+        <div class="sk-row"><span class="sk-key">Total rows</span><span class="sk-val">3,540</span></div>
+        <div class="sk-row"><span class="sk-key">Perturbations</span><span class="sk-val">J2, SRP, lunar/solar</span></div>
+      </div>
+      <div class="sk-card">
+        <div class="sk-card-title">ML model</div>
+        <div class="sk-row"><span class="sk-key">Type</span><span class="sk-val">GradientBoostingRegressor</span></div>
+        <div class="sk-row"><span class="sk-key">Estimators</span><span class="sk-val">200</span></div>
+        <div class="sk-row"><span class="sk-key">Learning rate</span><span class="sk-val">0.05</span></div>
+        <div class="sk-row"><span class="sk-key">Features</span><span class="sk-val">23 (lag, rolling, cyclic)</span></div>
+        <div class="sk-row"><span class="sk-key">Forecast horizon</span><span class="sk-val">6 steps ahead</span></div>
+      </div>
+      <div class="sk-card">
+        <div class="sk-card-title">Feature set</div>
+        <div class="sk-row"><span class="sk-key">Time encoding</span><span class="sk-val">sin/cos (hour, doy)</span></div>
+        <div class="sk-row"><span class="sk-key">Lagged inclination</span><span class="sk-val">steps 1, 3, 6, 12</span></div>
+        <div class="sk-row"><span class="sk-key">Rolling stats</span><span class="sk-val">mean + std (6-window)</span></div>
+        <div class="sk-row"><span class="sk-key">Kinematic</span><span class="sk-val">altitude, speed, r_mag</span></div>
+        <div class="sk-row"><span class="sk-key">Orbital energy</span><span class="sk-val">vis-viva, semi-major</span></div>
+      </div>
+      <div class="sk-card">
+        <div class="sk-card-title">Validation</div>
+        <div class="sk-row"><span class="sk-key">CV method</span><span class="sk-val">walk-forward (5-fold)</span></div>
+        <div class="sk-row"><span class="sk-key">Best inc. MAE</span><span class="sk-val" style="color:#378ADD">0.000112°</span></div>
+        <div class="sk-row"><span class="sk-key">Best inc. RMSE</span><span class="sk-val" style="color:#378ADD">0.000124°</span></div>
+        <div class="sk-row"><span class="sk-key">ΔV formula</span><span class="sk-val">2·v·sin(Δi/2)</span></div>
+        <div class="sk-row"><span class="sk-key">Reference</span><span class="sk-val">Soop 1994, ISRO MCF</span></div>
+      </div>
+    </div>`;
+}
+
+buildSidebar();
+renderTop();
+renderContent();
+</script>
